@@ -21,3 +21,7 @@ https://www.machinelearningplus.com/plots/top-50-matplotlib-visualizations-the-m
   - squarify
   - calmap
   - sklearn
+
+## start
+
+jupyter notebook
