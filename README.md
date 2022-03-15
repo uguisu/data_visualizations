@@ -8,20 +8,10 @@ https://www.machinelearningplus.com/plots/top-50-matplotlib-visualizations-the-m
 ## Require
 - OS
   - Ubuntu 18.04
-- Python3.6+
-  - jupyterlab
-  - brewer2mpl
-  - numpy
-  - pandas
-  - matplotlib
-  - seaborn
-  - statsmodels
-  - joypy
-  - pywaffle
-  - squarify
-  - calmap
-  - sklearn
+- Python3.7
 
 ## start
 
-jupyter notebook
+```sh
+jupyter-lab
+```
