@@ -1,0 +1,15 @@
+{
+  "db_connection_1": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "username": "root",
+    "password": "root",
+    "schema": "some_db"
+  },
+  "train_file": "some_path/train.csv",
+  "test_file": "some_path/test.csv",
+  "validation_file": "some_path/valid.csv",
+  "support_path": "..",
+  "is_notebook": false,
+  "is_load_data_from_file": true
+}

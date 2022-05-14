@@ -1,0 +1,6 @@
+{
+  "db_connection_al": null,
+  "train_file": "../data/zhengqi_train.txt",
+  "test_file": "../data/zhengqi_test.txt",
+  "validation_file": ""
+}
