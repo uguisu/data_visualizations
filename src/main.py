@@ -19,15 +19,17 @@ from scipy import stats
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
 
+from scipy import stats
+
 # init global variables
 df_train, df_test = None, None
 
-# ConfigManager()
-# cm = None
-# config_bean -> cm.load()
+# config_bean -> ConfigManager.load()
 config_bean = None
 # database connection object
 db_connection_g = None
+# feature_list
+feature_list = None
 
 
 # declare static variable
@@ -998,7 +1000,7 @@ def ana_qq_kde(ds_train, ds_test):
     数据分布情况 - 直方图, Q-Q图, KDE图
     """
 
-    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX, feature_list
 
     # verify
     if ds_train is None:
@@ -1063,7 +1065,7 @@ def linear_regression_diagram(ds_train, ds_test):
     数据分布情况 - 线性回归关系图
     """
 
-    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX, feature_list
 
     # verify
     if ds_train is None:
@@ -1157,6 +1159,266 @@ def heatmap(data_set):
 
     ax = plt.subplots(figsize=(20, 16))
     ax = sns.heatmap(train_corr, vmax=.8, square=True, annot=True, mask=mask, fmt='0.3f')
+
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+
+def heatmap_2(ds_train, ds_test, threshold=0.1):
+    """
+    带有过滤条件的 heatmap
+    threshold 这个与之设置的越大，剩下的特征就越少
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX, feature_list
+
+    # verify
+    if ds_train is None:
+        return
+    if ds_test is None:
+        return
+
+    assert isinstance(ds_train, DataFrame)
+    assert isinstance(ds_test, DataFrame)
+
+    # TODO corr()函数有参数 method='spearman'
+    corrmat = ds_train.corr()
+    # 这里返回的是一个特征名称列表
+    top_corr_features = corrmat.index[abs(corrmat["target"]) > threshold]
+
+    print('current features: {}'.format(len(top_corr_features)))
+    logger.info('current features: {}'.format(len(top_corr_features)))
+
+    # 设置mask
+    s_size = len(top_corr_features)
+    mask = np.zeros((s_size, s_size), dtype=bool)
+    mask[np.triu_indices_from(mask)] = True
+    # 保留对角线上的值
+    mask[np.eye(s_size, dtype=bool)] = False
+
+    plt.subplots(figsize=(20, 16))
+
+    sns.heatmap(ds_train[top_corr_features].corr(), annot=True, cmap="RdYlGn", mask=mask, fmt='0.3f')
+
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+    # 对比相关性矩阵的变化，筛选将被删除的列
+    drop_target = [c for c in corrmat.columns if c not in top_corr_features]
+    print('these features will be dropped:{}'.format(drop_target))
+    logger.info('these features will be dropped:{}'.format(drop_target))
+    # 删除指定的列
+    ds_train.drop(drop_target, axis=1, inplace=True)
+    ds_test.drop(drop_target, axis=1, inplace=True)
+
+    # 提取df_train中的特征标签，并将起转换成列表形式
+    feature_list = list(ds_train.columns)
+    # 为方便之后使用，去掉列表中被一并提取出来的target标签，确保仅留特征标签
+    feature_list.remove('target')
+
+    print(', '.join(feature_list))
+    logger.info(', '.join(feature_list))
+
+
+def feature_tag_scatterplot(data_set):
+    """
+    绘制特征标签与预测标签（target）的散点图
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX, feature_list
+
+    # verify
+    if data_set is None:
+        return
+    assert isinstance(data_set, DataFrame)
+
+    plt_rows = len(feature_list)
+    plt_cols = 4
+
+    plt.figure(figsize=(4 * plt_cols, 4 * plt_rows))
+
+    i = 0
+    for f in feature_list:
+        i += 1
+        plt.subplot(plt_rows, plt_cols, i)
+
+        sns.scatterplot(x=data_set[f'{f}'], y=data_set['target'])
+
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+
+def normal_distribution_check(data_set):
+    """
+    正态分布检验
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX, feature_list
+
+    # verify
+    if data_set is None:
+        return
+    assert isinstance(data_set, DataFrame)
+
+    # 偏度
+    for i in feature_list:
+        skew = stats.skew(data_set[f'{i}'])
+        print(f'the skew value of feature {i} is {skew}')
+        logger.info(f'the skew value of feature {i} is {skew}')
+
+    # 峰度
+    for i in feature_list:
+        kurtosis = stats.kurtosis(data_set[f'{i}'])
+        print(f'the kurtosis value of feature {i} is {kurtosis}')
+        logger.info(f'the kurtosis value of feature {i} is {kurtosis}')
+
+
+def normalization(ds_train, ds_test):
+    """
+    归一化
+    """
+    global logger, feature_list
+
+    # verify
+    if ds_train is None:
+        return
+    if ds_test is None:
+        return
+
+    assert isinstance(ds_train, DataFrame)
+    assert isinstance(ds_test, DataFrame)
+
+    # ds_train 的值没有改变，生成了一个新的dataframe，不包含 target
+    train_x = ds_train[feature_list]
+
+    # 按列归一化
+    train_x = train_x.apply(scale_minmax, axis=0)
+    print('before merge TARGET')
+    logger.info('before merge TARGET')
+    # display(train_x.describe())
+
+    # 重新拼接成矩阵
+    train_x['target'] = ds_train['target']
+    print('merge TARGET')
+    logger.info('merge TARGET')
+    # display(train_x.describe())
+
+    return train_x, ds_test.apply(scale_minmax, axis=0)
+
+
+def scale_minmax(col):
+    return (col - col.min()) / (col.max() - col.min())
+
+
+def box_cox(data_set):
+    """
+    Box-Cox
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX, feature_list
+
+    # verify
+    if data_set is None:
+        return data_set
+
+    assert isinstance(data_set, DataFrame)
+
+    train_data_process = data_set[feature_list]
+    train_data_process = train_data_process[feature_list].apply(scale_minmax, axis=0)
+
+    total_features = len(feature_list)
+
+    feature_list_left = feature_list[0:total_features]
+    # feature_list_right = feature_list[total_features:]
+    train_data_process = pd.concat([train_data_process, data_set['target']], axis=1)
+
+    fcols = 6
+    frows = len(feature_list_left)
+    plt.figure(figsize=(4 * fcols, 4 * frows))
+    i = 0
+
+    for var in feature_list_left:
+        dat = train_data_process[[var, 'target']].dropna()
+
+        i += 1
+        plt.subplot(frows, fcols, i)
+        sns.histplot(dat[var], kde=True)
+        plt.title(var + ' Original')
+        plt.xlabel('')
+
+        i += 1
+        plt.subplot(frows, fcols, i)
+        _ = stats.probplot(dat[var], plot=plt)
+        plt.title('skew=' + '{:.4f}'.format(stats.skew(dat[var])))
+        plt.xlabel('')
+        plt.ylabel('')
+
+        i += 1
+        plt.subplot(frows, fcols, i)
+        plt.plot(dat[var], dat['target'], '.', alpha=0.5)
+        plt.title('corr=' + '{:.2f}'.format(np.corrcoef(dat[var], dat['target'])[0][1]))
+
+        i += 1
+        plt.subplot(frows, fcols, i)
+        trans_var, lambda_var = stats.boxcox(dat[var].dropna() + 1)
+        trans_var = scale_minmax(trans_var)
+        sns.histplot(trans_var, kde=True)
+        plt.title(var + ' Transformed')
+        plt.xlabel('')
+
+        i += 1
+        plt.subplot(frows, fcols, i)
+        _ = stats.probplot(trans_var, plot=plt)
+        plt.title('skew=' + '{:.4f}'.format(stats.skew(trans_var)))
+        plt.xlabel('')
+        plt.ylabel('')
+
+        i += 1
+        plt.subplot(frows, fcols, i)
+        plt.plot(trans_var, dat['target'], '.', alpha=0.5)
+        plt.title('corr=' + '{:.2f}'.format(np.corrcoef(trans_var, dat['target'])[0][1]))
 
     if config_bean.is_notebook:
         plt.show()
@@ -1307,3 +1569,13 @@ if __name__ == '__main__':
 
     # 计算相关性系数
     heatmap(df_train)
+    # 绘制特征标签与预测标签（target）的散点图，与相关系数的计算结果进行相互校对
+    feature_tag_scatterplot(df_train)
+    # 根据相关系数筛选特征变量。找出与target变量的相关系数大于0.1的特征变量
+    heatmap_2(df_train, df_test)
+    # 正态分布检验
+    normal_distribution_check(df_train)
+    # 归一化
+    df_train, df_test = normalization(df_train, df_test)
+    # box-cox
+    box_cox(df_train)
