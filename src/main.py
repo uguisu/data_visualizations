@@ -1058,6 +1058,124 @@ def ana_qq_kde(ds_train, ds_test):
         IMAGE_IMG_IDX += 1
 
 
+def linear_regression_diagram(ds_train, ds_test):
+    """
+    数据分布情况 - 线性回归关系图
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX
+
+    # verify
+    if ds_train is None:
+        return
+    if ds_test is None:
+        return
+
+    assert isinstance(ds_train, DataFrame)
+    assert isinstance(ds_test, DataFrame)
+
+    # 提取df_train中的特征标签，并将起转换成列表形式
+    feature_list = list(ds_train.columns)
+    # 为方便之后使用，去掉列表中被一并提取出来的target标签，确保仅留特征标签
+    feature_list.remove('target')
+
+    # 删除指定的列
+    drop_target = ['V5', 'V9', 'V11', 'V14', 'V17', 'V21', 'V22']
+    # 原书中删除的是 'V5','V9','V11','V17','V22','V28'
+
+    ds_train.drop(drop_target, axis=1, inplace=True)
+    ds_test.drop(drop_target, axis=1, inplace=True)
+
+    # 提取df_train中的特征标签，并将起转换成列表形式
+    feature_list = list(ds_train.columns)
+    # 为方便之后使用，去掉列表中被一并提取出来的target标签，确保仅留特征标签
+    feature_list.remove('target')
+
+    fcols = 4
+    frows = len(feature_list)
+    plt.figure(figsize=(5 * fcols, 4 * frows))
+
+    i = 0
+    for col in feature_list:
+        i += 1
+        ax = plt.subplot(frows, fcols, i)
+        sns.regplot(x=col, y='target', data=ds_train,
+                    ax=ax, scatter_kws={'marker': '.', 's': 3, 'alpha': 0.3}, line_kws={'color': 'k'})
+        ax.set_xlabel(col)
+        ax.set_ylabel("Target")
+
+        i += 1
+        ax = plt.subplot(frows, fcols, i)
+        sns.histplot(ds_train[col].dropna(), kde=True)
+        plt.xlabel(col)
+
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+
+def heatmap(data_set):
+    """
+    计算相关性系数
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX
+
+    # verify
+    if data_set is None:
+        return
+    assert isinstance(data_set, DataFrame)
+
+    pd.set_option('display.max_columns', 10)
+    pd.set_option('display.max_rows', 10)
+
+    # TODO corr()函数有参数 method='spearman'
+    train_corr = data_set.corr()
+    # train_corr
+
+    print('current features: {}'.format(len(train_corr.columns)))
+    logger.info('current features: {}'.format(len(train_corr.columns)))
+
+    # 设置mask
+    mask = np.zeros_like(train_corr, dtype=bool)
+    mask[np.triu_indices_from(mask)] = True
+    # 保留对角线上的值
+    mask[np.eye(len(train_corr.columns), dtype=bool)] = False
+
+    ax = plt.subplots(figsize=(20, 16))
+    ax = sns.heatmap(train_corr, vmax=.8, square=True, annot=True, mask=mask, fmt='0.3f')
+
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+
 def UDF_remove_anomaly_values(data_set, column_name, threshold=1.0):
     """
     user declare function
@@ -1184,3 +1302,8 @@ if __name__ == '__main__':
 
     # 数据分布情况 - 直方图, Q-Q图, KDE图
     ana_qq_kde(df_train, df_test)
+    # 数据分布情况 - 线性回归关系图
+    linear_regression_diagram(df_train, df_test)
+
+    # 计算相关性系数
+    heatmap(df_train)
