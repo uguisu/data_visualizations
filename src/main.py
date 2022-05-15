@@ -15,6 +15,9 @@ import pandas as pd
 import pymysql
 import seaborn as sns
 from pandas import DataFrame
+from scipy import stats
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error
 
 # init global variables
 df_train, df_test = None, None
@@ -31,7 +34,7 @@ db_connection_g = None
 CONFIG_FILE_NAME = 'config.json'
 LOG_FILE_NAME = 'log/al.log'
 LOG_FILE_ENCODE = 'utf-8'
-IMAGE_IMG_TEMPLATE = 'img_{time_stamp}_{idx}.png'.replace('{time_stamp}', str(datetime.now()))
+IMAGE_IMG_TEMPLATE = 'img_{time_stamp}_{idx}.png'.replace('{time_stamp}', str(datetime.now().strftime('%Y%m%d_%H%M%S')))
 IMAGE_IMG_IDX = 0
 
 # declare log
@@ -864,6 +867,246 @@ def draw_box_plot(data_set=None, column_list=None, plt_rows=-1, plt_cols=-1):
         IMAGE_IMG_IDX += 1
 
 
+def anomaly_detection_by_box_plot(data_set, line_scope=[-1.0, 1.0]):
+    """
+    异常值分析
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX
+
+    # verify
+    if data_set is None:
+        return
+
+    assert isinstance(data_set, DataFrame)
+
+    plt.figure(figsize=(24, 14))
+    plt.boxplot(x=data_set.values, labels=data_set.columns)
+
+    plt.hlines(line_scope, 0, 40, colors='r')
+
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+
+# function to detect outliers based on the predictions of a model
+def find_outliers(model, X, y, sigma=3):  # X:feature y:label  return: 异常值的index
+    # predict y values using model
+    # try:
+    #     y_pred = pd.Series(model.predict(X), index=y.index)
+    # # if predicting failed, try fitting the model first
+    # except:
+    #     model.fit(X, y)
+    #     y_pred = pd.Series(model.predict(X), index=y.index)
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX
+
+    model.fit(X, y)
+    y_pred = pd.Series(model.predict(X), index=y.index)
+
+    # calculate residuals between the model prediction and true y values
+    resid = y - y_pred
+    mean_resid = resid.mean()
+    std_resid = resid.std()
+
+    # calculate a statistic, define outliers to be where z >sigma 这里是标准化的计算公式
+    z = (resid - mean_resid) / std_resid
+    outliers = z[abs(z) > sigma].index
+
+    # print and plot the results
+    print('R2={:.12f}'.format(model.score(X, y)))
+    logger.info('R2={:.12f}'.format(model.score(X, y)))
+
+    print('mse={:.12f}'.format(mean_squared_error(y, y_pred)))
+    logger.info('mse={:.12f}'.format(mean_squared_error(y, y_pred)))
+
+    print('-----------------------------------')
+    logger.info('-----------------------------------')
+
+    print('mean of residuals:{:.12f}'.format(mean_resid))
+    logger.info('mean of residuals:{:.12f}'.format(mean_resid))
+
+    print('std of residuals:{:.12f}'.format(std_resid))
+    logger.info('std of residuals:{:.12f}'.format(std_resid))
+
+    print('-----------------------------------')
+    logger.info('-----------------------------------')
+
+    print('{} outliers:'.format(len(outliers)))
+    logger.info('{} outliers:'.format(len(outliers)))
+
+    print(outliers.tolist())
+    logger.info(outliers.tolist())
+
+    plt.figure(figsize=(15, 5))
+    ax_131 = plt.subplot(1, 3, 1)
+    plt.plot(y, y_pred, '.')
+    plt.plot(y.loc[outliers], y_pred.loc[outliers], 'ro')
+    plt.legend(['Accepted', 'Outliers'])
+    plt.xlabel('y')
+    plt.ylabel('y_pred')
+
+    ax_132 = plt.subplot(1, 3, 2)
+    plt.plot(y, y - y_pred, '.')
+    plt.plot(y.loc[outliers], y.loc[outliers] - y_pred.loc[outliers], 'ro')
+    plt.legend(['Accepted', 'Outliers'])
+    plt.xlabel('y')
+    plt.ylabel('y_pred')
+
+    ax_133 = plt.subplot(1, 3, 3)
+    z.plot.hist(bins=50, ax=ax_133)
+    z.loc[outliers].plot.hist(color='r', bins=50, ax=ax_133)
+    plt.legend(['Accepted', 'Outliers'])
+    plt.xlabel('z')
+
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+    return outliers
+
+
+def ana_qq_kde(ds_train, ds_test):
+    """
+    数据分布情况 - 直方图, Q-Q图, KDE图
+    """
+
+    global config_bean, logger, IMAGE_IMG_TEMPLATE, IMAGE_IMG_IDX
+
+    # verify
+    if ds_train is None:
+        return
+    if ds_test is None:
+        return
+
+    assert isinstance(ds_train, DataFrame)
+    assert isinstance(ds_test, DataFrame)
+
+    # 提取df_train中的特征标签，并将起转换成列表形式
+    feature_list = list(ds_train.columns)
+    # 为方便之后使用，去掉列表中被一并提取出来的target标签，确保仅留特征标签
+    feature_list.remove('target')
+
+    plt_rows = len(feature_list)
+    plt_cols = 6
+    zoom_to = 1.0
+
+    plt.figure(figsize=(4 * zoom_to * plt_cols, 4 * zoom_to * plt_rows))
+
+    i = 0
+    for col in feature_list:
+        i += 1
+        plt.subplot(plt_rows, plt_cols, i)
+        sns.histplot(ds_train[col], kde=True)
+        sns.histplot(ds_test[col], kde=True, color='r')
+
+        i += 1
+        plt.subplot(plt_rows, plt_cols, i)
+        res = stats.probplot(ds_train[col], plot=plt)
+
+        i += 1
+        plt.subplot(plt_rows, plt_cols, i)
+        ax = sns.kdeplot(ds_train[col], color='b', shade=True)
+        ax = sns.kdeplot(ds_test[col], color='r', shade=True)
+        ax.set_xlabel('KDE - ' + col)
+        ax.set_ylabel('Frequency')
+        ax = ax.legend(['train', 'test'])
+
+    plt.tight_layout()
+    if config_bean.is_notebook:
+        plt.show()
+    else:
+        # generate output file name
+        _out_img = os.path.join(
+            config_bean.support_path,
+            IMAGE_IMG_TEMPLATE.format(
+                idx=IMAGE_IMG_IDX
+            )
+        )
+        logger.info('save image to {0}'.format(_out_img))
+
+        plt.savefig(_out_img)
+
+        plt.close()
+        IMAGE_IMG_IDX += 1
+
+
+def UDF_remove_anomaly_values(data_set, column_name, threshold=1.0):
+    """
+    user declare function
+    """
+
+    # verify
+    if data_set is None:
+        return
+
+    assert isinstance(data_set, DataFrame)
+
+    # backup row amounts
+    before_clean = data_set.shape[0]
+
+    data_set = data_set[data_set[column_name] > threshold]
+
+    # display(data_set.describe())
+
+    print('remove data {} rows.'.format(before_clean - data_set.shape[0]))
+    logger.info('remove data {} rows.'.format(before_clean - data_set.shape[0]))
+
+    return data_set
+
+
+def UDF_fill_nan_value(data_set):
+    """
+    NaN空值补偿
+    """
+
+    # verify
+    if data_set is None:
+        return data_set
+
+    assert isinstance(data_set, DataFrame)
+
+    # 检查每一个特征的缺失情况
+
+    # 提取df_train中的特征标签，并将起转换成列表形式
+    feature_list = list(data_set.columns)
+    # 为方便之后使用，去掉列表中被一并提取出来的target标签，确保仅留特征标签
+    feature_list.remove('target')
+
+    for c in feature_list:
+        print('feature: {}, lost rate {}'.format(c, (data_set.shape[0] - data_set[c].count()) / data_set.shape[0]))
+        logger.info('feature: {}, lost rate {}'.format(c, (data_set.shape[0] - data_set[c].count()) / data_set.shape[0]))
+
+    return data_set
+
+
 if __name__ == '__main__':
     """
     command cli:
@@ -904,3 +1147,40 @@ if __name__ == '__main__':
     column = get_column_name_list(df_train)
     # draw box plot, do not contain 'target' column
     draw_box_plot(df_train, column, plt_rows=len(column) - 1, plt_cols=4)
+
+    # 异常值分析
+    # TODO 这里为什么是在[-7.5, 7.5]划分出一个区间？
+    anomaly_detection_by_box_plot(df_train, line_scope=[-7.5, 7.5])
+
+    df_train = UDF_remove_anomaly_values(df_train, 'V9', threshold=-7.5)
+    df_test = UDF_remove_anomaly_values(df_test, 'V9', threshold=-7.5)
+
+    df_train = UDF_fill_nan_value(df_train)
+
+    # 数据分布情况 - 岭回归获取异常值
+    # 以循环方式按行删除所有异常数据， 最多 20 次循环
+    max_loop = 20
+    total_drop = 0
+    while True:
+
+        X_train = df_train.iloc[:, 0:-1]
+        y_train = df_train.iloc[:, -1]
+        outliers = find_outliers(Ridge(), X_train, y_train)
+        outliers = outliers.to_list()
+        print('drop: ', outliers)
+        logger.info('drop: ' + str(outliers))
+        df_train.drop(outliers, axis=0, inplace=True)
+
+        if max_loop <= 0 or 0 == len(outliers):
+            break
+
+        max_loop -= 1
+        total_drop += len(outliers)
+        print('loop:', max_loop)
+        logger.info('loop:' + str(max_loop))
+
+    print('total dropped {} lines.'.format(total_drop))
+    logger.info('total dropped {} lines.'.format(total_drop))
+
+    # 数据分布情况 - 直方图, Q-Q图, KDE图
+    ana_qq_kde(df_train, df_test)
