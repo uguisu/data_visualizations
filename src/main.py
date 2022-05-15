@@ -16,10 +16,13 @@ import pymysql
 import seaborn as sns
 from pandas import DataFrame
 from scipy import stats
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LinearRegression  # 线性回归
 from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_squared_error
-
-from scipy import stats
+from sklearn.linear_model import SGDRegressor
+from sklearn.metrics import mean_squared_error  # 评价指标
+from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split  # 切分数据
 
 # init global variables
 df_train, df_test = None, None
@@ -1438,6 +1441,80 @@ def box_cox(data_set):
         IMAGE_IMG_IDX += 1
 
 
+def pca(ds_train, ds_test):
+    global logger, feature_list
+
+    # verify
+    if ds_train is None:
+        return
+    if ds_test is None:
+        return
+
+    assert isinstance(ds_train, DataFrame)
+    assert isinstance(ds_test, DataFrame)
+
+    pca = PCA(n_components=16)
+
+    # 注意，这里的 `new_train_pca_16` 是一个 numpy.ndarray
+    new_train_pca_16 = pca.fit_transform(ds_train.iloc[:, 0:-1])
+    # 注意，这里的 `new_test_pca_16` 是一个 numpy.ndarray
+    new_test_pca_16 = pca.transform(ds_test)
+
+    # 拼接一个完整数据集。 注意，因为使用了PCA进行降维，现在得到的数据与原来的数据并不相同，是不同的空间，所以要给新的数据指定新的特征名
+    new_train_pca_16 = pd.DataFrame(new_train_pca_16,
+                                    columns=['F-{}'.format(x) for x in range(new_train_pca_16.shape[1])])
+    new_test_pca_16 = pd.DataFrame(new_test_pca_16, columns=['F-{}'.format(x) for x in range(new_test_pca_16.shape[1])])
+    new_train_pca_16['target'] = ds_train['target']
+
+    # display(new_train_pca_16.describe())
+    # display(df_train.describe())
+
+    return new_train_pca_16, new_test_pca_16
+
+
+def train_liner(ds_train, train_test_size=0.8):
+    """
+    多元线性回归
+    """
+
+    global logger
+
+    # verify
+    if ds_train is None:
+        return
+
+    assert isinstance(ds_train, DataFrame)
+
+    # 切分数据
+    new_train_pca_16 = ds_train.fillna(0)
+    train = new_train_pca_16[new_train_pca_16.columns]
+    target = new_train_pca_16['target']
+
+    train_data, test_data, train_target, test_target = train_test_split(train, target, test_size=(1 - train_test_size),
+                                                                        random_state=0)
+
+    clf = LinearRegression()
+    clf.fit(train_data, train_target)
+    score = mean_squared_error(test_target, clf.predict(test_data))
+
+    print("LinearRegression:{}".format(score))
+    logger.info("LinearRegression:{}".format(score))
+
+    # K折交叉验证
+    kf = KFold(n_splits=5)
+    for k, (train_index, test_index) in enumerate(kf.split(train)):
+        train_data, test_data, train_target, test_target = train.values[train_index], train.values[test_index], target[
+            train_index], target[test_index]
+        clf = SGDRegressor(max_iter=1000, tol=1e-3)
+        clf.fit(train_data, train_target)
+        score_train = mean_squared_error(train_target, clf.predict(train_data))
+        score_test = mean_squared_error(test_target, clf.predict(test_data))
+        print('{k} fold SGDRegressor train MSE: {score_train:.12f}'.format(k=k, score_train=score_train))
+        logger.info('{k} fold SGDRegressor train MSE: {score_train:.12f}'.format(k=k, score_train=score_train))
+        print('{k} fold SGDRegressor test  MSE: {score_test:.12f}'.format(k=k, score_test=score_test))
+        logger.info('{k} fold SGDRegressor test  MSE: {score_test:.12f}'.format(k=k, score_test=score_test))
+
+
 def UDF_remove_anomaly_values(data_set, column_name, threshold=1.0):
     """
     user declare function
@@ -1579,3 +1656,7 @@ if __name__ == '__main__':
     df_train, df_test = normalization(df_train, df_test)
     # box-cox
     box_cox(df_train)
+    # PCA处理
+    pca_train, pca_test = pca(df_train, df_test)
+    # 多元线性回归
+    train_liner(pca_train)
